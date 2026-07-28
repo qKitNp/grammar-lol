@@ -90,17 +90,123 @@ async fn select_all_and_capture(app: tauri::AppHandle) -> Result<Capture, String
     Ok(Capture { app_name, text })
 }
 
+/// macOS TCC helpers for the two permissions Grammar.lol actually needs:
+///
+/// 1. **Accessibility** (`AXIsProcessTrusted`) — paste/replace via synthetic
+///    keys + UI control. Also required for some event-tap install paths.
+/// 2. **Input Monitoring** (`CGPreflightListenEventAccess`) — listen-only
+///    `CGEventTap` for global Right Shift. Without this, the tap can install
+///    and then receive no events (or fail) after a release rebuild.
+///
+/// Ad-hoc signed builds change CDHash every rebuild. System Settings can still
+/// show "Grammar.lol" as enabled for an *old* binary while the current process
+/// is untrusted — the preflight APIs are the source of truth.
 #[cfg(target_os = "macos")]
-#[link(name = "ApplicationServices", kind = "framework")]
-extern "C" {
-    fn AXIsProcessTrusted() -> bool;
+pub mod macos_permissions {
+    use core_foundation::base::{CFType, TCFType};
+    use core_foundation::boolean::CFBoolean;
+    use core_foundation::dictionary::CFDictionary;
+    use core_foundation::string::CFString;
+
+    #[link(name = "ApplicationServices", kind = "framework")]
+    extern "C" {
+        fn AXIsProcessTrusted() -> bool;
+        fn AXIsProcessTrustedWithOptions(
+            options: core_foundation::dictionary::CFDictionaryRef,
+        ) -> bool;
+    }
+
+    #[link(name = "CoreGraphics", kind = "framework")]
+    extern "C" {
+        fn CGPreflightListenEventAccess() -> bool;
+        fn CGRequestListenEventAccess() -> bool;
+    }
+
+    pub fn accessibility_trusted() -> bool {
+        unsafe { AXIsProcessTrusted() }
+    }
+
+    /// Prompt so the *current* binary is registered under Accessibility.
+    pub fn request_accessibility() -> bool {
+        if accessibility_trusted() {
+            return true;
+        }
+        unsafe {
+            let key = CFString::new("AXTrustedCheckOptionPrompt");
+            let value = CFBoolean::true_value();
+            let pairs: Vec<(CFType, CFType)> =
+                vec![(key.as_CFType(), value.as_CFType())];
+            let options = CFDictionary::from_CFType_pairs(&pairs);
+            AXIsProcessTrustedWithOptions(options.as_concrete_TypeRef())
+        }
+    }
+
+    pub fn input_monitoring_granted() -> bool {
+        unsafe { CGPreflightListenEventAccess() }
+    }
+
+    /// Registers this process under Input Monitoring and may show a system
+    /// prompt. Returns whether listen access is granted *after* the call
+    /// (user may still need to flip the toggle and restart).
+    pub fn request_input_monitoring() -> bool {
+        if input_monitoring_granted() {
+            return true;
+        }
+        unsafe {
+            let _ = CGRequestListenEventAccess();
+        }
+        input_monitoring_granted()
+    }
+
+    /// Both grants needed for double-tap + in-place replace.
+    pub fn shortcut_ready() -> bool {
+        accessibility_trusted() && input_monitoring_granted()
+    }
 }
 
 #[tauri::command]
 fn check_accessibility_permission() -> bool {
     #[cfg(target_os = "macos")]
-    unsafe {
-        AXIsProcessTrusted()
+    {
+        macos_permissions::accessibility_trusted()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        true
+    }
+}
+
+/// Re-register the running process for Accessibility and show Apple's prompt
+/// when trust is missing (common after ad-hoc rebuilds).
+#[tauri::command]
+fn request_accessibility_permission() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        macos_permissions::request_accessibility()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        true
+    }
+}
+
+#[tauri::command]
+fn check_input_monitoring_permission() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        macos_permissions::input_monitoring_granted()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        true
+    }
+}
+
+#[tauri::command]
+fn request_input_monitoring_permission() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        macos_permissions::request_input_monitoring()
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -203,6 +309,9 @@ pub fn run() {
             select_all_and_capture,
             replace_selection,
             check_accessibility_permission,
+            request_accessibility_permission,
+            check_input_monitoring_permission,
+            request_input_monitoring_permission,
             check_launch_at_login,
             enable_launch_at_login,
             set_onboarding_complete,
