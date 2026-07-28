@@ -26,7 +26,7 @@ enigo = "0.2"
 rodio = "0.22.2"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "blocking"] }
 sha2 = "0.10"
-base64 = { version = "0.22", features = ["std"] }
+base64 = { version = "0.23", features = ["std"] }
 rand = "0.8"
 urlencoding = "2.1"
 tiny_http = "0.12"
