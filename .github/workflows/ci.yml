@@ -15,7 +15,7 @@ jobs:
     name: Frontend (tsc + vite)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Bun
         uses: oven-sh/setup-bun@v2
@@ -30,7 +30,7 @@ jobs:
     name: Rust check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install system dependencies (Tauri / Linux)
         run: |
