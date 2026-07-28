@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Grammar.lol — proofread with ChatGPT or SuperGrok"
 authors = ["Grammar.lol"]
 edition = "2021"
+license = "GPL-3.0-only"
 
 [lib]
 name = "grammar_lol_lib"

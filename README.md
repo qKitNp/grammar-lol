@@ -52,3 +52,7 @@ src-tauri/target/release/bundle/macos/Grammar.lol.app
 - [Tauri 2](https://tauri.app) + React + TypeScript + Vite
 - SQLite (local ledger)
 - ChatGPT Codex OAuth / xAI SuperGrok device-code OAuth
+
+## License
+
+[GNU General Public License v3.0](LICENSE) (GPL-3.0-only).
