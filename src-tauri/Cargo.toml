@@ -27,7 +27,7 @@ rodio = "0.22.2"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "blocking"] }
 sha2 = "0.10"
 base64 = { version = "0.22", features = ["std"] }
-rand = "0.8"
+rand = "0.10"
 urlencoding = "2.1"
 tiny_http = "0.12"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
