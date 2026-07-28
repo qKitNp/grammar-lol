@@ -1,0 +1,65 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Grammar.lol",
+  "version": "0.1.0",
+  "identifier": "com.kitn.grammar-lol",
+  "build": {
+    "beforeDevCommand": "bun run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "bun run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Grammar.lol",
+        "width": 800,
+        "height": 600,
+        "visible": true
+      },
+      {
+        "label": "overlay",
+        "url": "index.html?window=overlay",
+        "width": 220,
+        "height": 56,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "focus": false,
+        "visible": false,
+        "shadow": false,
+        "acceptFirstMouse": false
+      }
+    ],
+    "security": {
+      "csp": null
+    },
+    "macOSPrivateApi": true
+  },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": [
+          "grammarlol"
+        ]
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "shortDescription": "Proofread anywhere with ChatGPT or SuperGrok",
+    "longDescription": "Grammar.lol proofreads selected text in any app using your ChatGPT or SuperGrok subscription. Double-tap Right Shift to correct grammar in place.",
+    "category": "Productivity",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  }
+}

@@ -1,0 +1,67 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg: #f6f5f2;
+  --color-sidebar: #efede8;
+  --color-surface: #ffffff;
+  --color-border: #e6e3dd;
+  --color-border-soft: #efede8;
+  --color-text: #1a1714;
+  --color-text-soft: #5e564e;
+  --color-text-faint: #9a9287;
+  --color-accent: #1db954;
+  --color-accent-soft: #e1f7ec;
+
+  --font-sans: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, "SF Mono", monospace;
+}
+
+@layer base {
+  :root {
+    --bg: var(--color-bg);
+    --sidebar: var(--color-sidebar);
+    --surface: var(--color-surface);
+    --border: var(--color-border);
+    --border-soft: var(--color-border-soft);
+    --text: var(--color-text);
+    --text-soft: var(--color-text-soft);
+    --text-faint: var(--color-text-faint);
+    --accent: var(--color-accent);
+    --accent-soft: var(--color-accent-soft);
+    color-scheme: light;
+  }
+
+  html, body, #root {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  ::selection {
+    background: color-mix(in srgb, var(--accent) 22%, transparent);
+    color: var(--text);
+  }
+
+  html.overlay-window,
+  body.overlay-window,
+  body.overlay-window #root {
+    background: transparent !important;
+  }
+
+  @keyframes keyHintClick {
+    0%, 100% { transform: scale(1); }
+    10% { transform: scale(0.92); }
+    20%, 50% { transform: scale(1); }
+    60% { transform: scale(0.92); }
+    70% { transform: scale(1); }
+  }
+}

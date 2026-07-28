@@ -1,0 +1,42 @@
+{
+  "name": "grammar-lol",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@tabler/icons-react": "^3.41.1",
+    "@tailwindcss/vite": "^4.2.2",
+    "@tanstack/react-router": "^1.168.23",
+    "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-autostart": "^2.5.1",
+    "@tauri-apps/plugin-clipboard-manager": "^2",
+    "@tauri-apps/plugin-deep-link": "^2.4.8",
+    "@tauri-apps/plugin-opener": "^2",
+    "@tauri-apps/plugin-sql": "^2.4.0",
+    "clsx": "^2.1.1",
+    "diff-match-patch": "^1.0.5",
+    "lucide-react": "^1.8.0",
+    "motion": "^12.38.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "tailwind-merge": "^3.5.0",
+    "tailwindcss": "^4.2.2",
+    "web-haptics": "^0.0.6",
+    "zustand": "^5.0.12"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2",
+    "@types/diff-match-patch": "^1.0.36",
+    "@types/react": "^19.1.8",
+    "@types/react-dom": "^19.1.6",
+    "@vitejs/plugin-react": "^4.6.0",
+    "typescript": "~5.8.3",
+    "vite": "^7.0.4"
+  }
+}
