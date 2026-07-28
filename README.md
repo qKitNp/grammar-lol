@@ -53,6 +53,10 @@ src-tauri/target/release/bundle/macos/Grammar.lol.app
 - SQLite (local ledger)
 - ChatGPT Codex OAuth / xAI SuperGrok device-code OAuth
 
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). Please read the [Code of Conduct](CODE_OF_CONDUCT.md) and report security issues via [SECURITY.md](SECURITY.md).
+
 ## License
 
 [GNU General Public License v3.0](LICENSE) (GPL-3.0-only).
