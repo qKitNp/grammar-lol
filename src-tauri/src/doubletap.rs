@@ -1,12 +1,16 @@
 //! Cross-platform double-tap-Right-Shift detector.
 //!
-//! On macOS uses a CGEventTap on a dedicated thread (requires Accessibility
-//! permission). On Windows and Linux (X11) uses `rdev::listen`. Emits
-//! "doubletap-rshift" to the frontend when Right Shift is tapped twice within
-//! DOUBLE_TAP_WINDOW_MS with no intervening keyboard or mouse activity.
+//! On macOS uses a CGEventTap on a dedicated thread. That needs:
+//! - **Input Monitoring** (listen-only global keyboard events)
+//! - **Accessibility** (often also required for the tap path; definitely for
+//!   the subsequent Cmd+C / Cmd+V replace flow)
 //!
-//! On macOS we retry installing the tap until Accessibility is granted — users
-//! often enable it mid-onboarding after the first failed attempt.
+//! On Windows and Linux (X11) uses `rdev::listen`. Emits "doubletap-rshift" to
+//! the frontend when Right Shift is tapped twice within DOUBLE_TAP_WINDOW_MS
+//! with no intervening keyboard or mouse activity.
+//!
+//! On macOS we retry installing the tap until permissions are granted — users
+//! often enable them mid-onboarding after the first failed attempt.
 
 use tauri::{AppHandle, Manager, Runtime};
 
@@ -42,10 +46,32 @@ mod imp {
     }
 
     pub fn run<R: Runtime>(app: AppHandle<R>) {
-        // Retry until Accessibility is granted. The first attempt often fails
-        // during onboarding before the user opens System Settings.
-        let mut warned = false;
+        // Retry until Input Monitoring + Accessibility allow the tap.
+        // Re-emit the toast periodically so the frontend still hears it if it
+        // registered listeners after the first failure at process start.
+        let mut last_warn = Instant::now()
+            .checked_sub(Duration::from_secs(60))
+            .unwrap_or_else(Instant::now);
         let tap = loop {
+            // Ensure this binary is listed under Input Monitoring.
+            if !crate::macos_permissions::input_monitoring_granted() {
+                let _ = crate::macos_permissions::request_input_monitoring();
+            }
+
+            let ax = crate::macos_permissions::accessibility_trusted();
+            let listen = crate::macos_permissions::input_monitoring_granted();
+            if !ax || !listen {
+                eprintln!(
+                    "[doubletap] waiting for permissions (accessibility={ax}, input_monitoring={listen})"
+                );
+                if last_warn.elapsed() >= Duration::from_secs(8) {
+                    last_warn = Instant::now();
+                    let _ = app.emit(PERMISSION_TOAST_EVENT, ());
+                }
+                std::thread::sleep(Duration::from_secs(2));
+                continue;
+            }
+
             let state: Mutex<State> = Mutex::new(State {
                 last_rshift_down: None,
                 clean: true,
@@ -95,7 +121,7 @@ mod imp {
                                             <= DOUBLE_TAP_WINDOW_MS
                             );
                             if fired {
-                                println!("[doubletap] Right Shift double-tap detected");
+                                eprintln!("[doubletap] Right Shift double-tap detected");
                                 app_for_cb.state::<crate::sound::SoundHandle>().play_click();
                                 let _ = app_for_cb.emit(TRIGGER_EVENT, ());
                                 s.last_rshift_down = None;
@@ -120,10 +146,10 @@ mod imp {
                 Ok(t) => break t,
                 Err(()) => {
                     eprintln!(
-                        "[doubletap] CGEventTapCreate failed (Accessibility permission missing?); retrying…"
+                        "[doubletap] CGEventTapCreate failed (permissions or secure input?); retrying…"
                     );
-                    if !warned {
-                        warned = true;
+                    if last_warn.elapsed() >= Duration::from_secs(8) {
+                        last_warn = Instant::now();
                         let _ = app.emit(PERMISSION_TOAST_EVENT, ());
                     }
                     std::thread::sleep(Duration::from_secs(2));
@@ -143,7 +169,7 @@ mod imp {
             current.add_source(&loop_source, kCFRunLoopCommonModes);
         }
         tap.enable();
-        println!("[doubletap] event tap installed; waiting for double-tap Right Shift");
+        eprintln!("[doubletap] event tap installed; waiting for double-tap Right Shift");
 
         CFRunLoop::run_current();
     }
@@ -216,6 +242,6 @@ mod imp {
             let _ = app.emit(PERMISSION_TOAST_EVENT, ());
             return;
         }
-        println!("[doubletap] listener installed; waiting for double-tap Right Shift");
+        eprintln!("[doubletap] listener installed; waiting for double-tap Right Shift");
     }
 }

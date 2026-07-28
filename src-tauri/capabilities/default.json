@@ -22,6 +22,12 @@
           "url": "x-apple.systempreferences:*"
         },
         {
+          "url": "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
+        },
+        {
+          "url": "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent"
+        },
+        {
           "url": "https://**"
         },
         {

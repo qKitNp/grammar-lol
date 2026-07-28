@@ -93,14 +93,17 @@ export async function registerHotkey(): Promise<() => void> {
     void onTrigger();
   });
   const offPerm = await listen("doubletap-permission-missing", () => {
-    useToasts.getState().push({
-      id: "doubletap-permission-missing",
-      tone: "error",
-      title: "Accessibility permission needed",
-      description:
-        "grammar.lol needs Accessibility access to detect the double-tap Right Shift shortcut. Open System Settings -> Privacy & Security -> Accessibility and enable grammar.lol, then restart the app.",
-      durationMs: 0,
-    });
+    // Onboarding already surfaces these as status rows — don't stack a toast.
+    if (localStorage.getItem("grammarlol:onboarded") === "1") {
+      useToasts.getState().push({
+        id: "doubletap-permission-missing",
+        tone: "error",
+        title: "Keyboard permissions needed",
+        description:
+          "Enable Grammar.lol under Privacy & Security → Accessibility and Input Monitoring, then fully quit and reopen the app.",
+        durationMs: 8000,
+      });
+    }
   });
   console.log("[hotkey] listening for double-tap Right Shift");
   return () => {
