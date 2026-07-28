@@ -1,7 +1,7 @@
-//! Session storage + ChatGPT / SuperGrok OAuth + proofread inference.
+//! Session storage + ChatGPT / SuperGrok OAuth.
 //!
-//! Tokens live in the app config dir (mode 0600). Inference runs here so the
-//! frontend never needs CORS exceptions to OpenAI/xAI.
+//! Tokens live in the app config dir (mode 0600). Proofread calls live in
+//! [`crate::inference`] and pull tokens from here.
 
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use parking_lot::Mutex;
@@ -24,14 +24,12 @@ const CHATGPT_TOKEN_URL: &str = "https://auth.openai.com/oauth/token";
 const CHATGPT_REDIRECT_URI: &str = "http://localhost:1455/auth/callback";
 const CHATGPT_SCOPE: &str =
     "openid profile email offline_access api.connectors.read api.connectors.invoke";
-const CHATGPT_RESPONSES_URL: &str = "https://chatgpt.com/backend-api/codex/responses";
 const CHATGPT_DEFAULT_MODEL: &str = "gpt-5.6-luna";
 
 const XAI_CLIENT_ID: &str = "b1a00492-073a-47ea-816f-4c329264a828";
 const XAI_DEVICE_CODE_URL: &str = "https://auth.x.ai/oauth2/device/code";
 const XAI_TOKEN_URL: &str = "https://auth.x.ai/oauth2/token";
 const XAI_SCOPE: &str = "openid profile email offline_access grok-cli:access api:access conversations:read conversations:write";
-const XAI_RESPONSES_URL: &str = "https://cli-chat-proxy.grok.com/v1/responses";
 const XAI_DEFAULT_MODEL: &str = "grok-4.20-0309-non-reasoning";
 
 /// Curated models for ChatGPT subscription (Codex) surface.
@@ -54,11 +52,6 @@ const XAI_MODELS: &[(&str, &str)] = &[
     ("grok-4.20-0309-reasoning", "Grok 4.2 (reasoning)"),
     ("grok-build-0.1", "Grok Build 0.1"),
 ];
-
-const SYSTEM_PROMPT: &str = "You are a precise grammar, spelling, and punctuation corrector. \
-Return ONLY the corrected text. Preserve meaning, tone, line breaks, and formatting. \
-Do not add explanations, quotes, markdown, or commentary. \
-If the text is already correct, return it unchanged.";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -221,7 +214,7 @@ fn is_known_model(provider: &ProviderId, model: &str) -> bool {
     models_for(provider).iter().any(|(id, _)| *id == model)
 }
 
-fn selected_model(app: &AppHandle, provider: &ProviderId) -> String {
+pub(crate) fn selected_model(app: &AppHandle, provider: &ProviderId) -> String {
     let prefs = load_prefs(app);
     let stored = match provider {
         ProviderId::Chatgpt => prefs.chatgpt_model.as_deref(),
@@ -233,7 +226,7 @@ fn selected_model(app: &AppHandle, provider: &ProviderId) -> String {
     }
 }
 
-fn load_session(app: &AppHandle) -> Result<Option<AuthSession>, String> {
+pub(crate) fn load_session(app: &AppHandle) -> Result<Option<AuthSession>, String> {
     let path = auth_path(app)?;
     if !path.exists() {
         return Ok(None);
@@ -284,7 +277,7 @@ fn jwt_exp(token: &str) -> Option<i64> {
         .and_then(|v| v.as_i64())
 }
 
-fn chatgpt_account_id_from_token(access: &str) -> Option<String> {
+pub(crate) fn chatgpt_account_id_from_token(access: &str) -> Option<String> {
     let payload = jwt_payload(access)?;
     // Prefer nested OpenAI auth claim
     if let Some(id) = payload
@@ -316,7 +309,7 @@ fn now_unix() -> i64 {
         .unwrap_or(0)
 }
 
-fn is_expired(session: &AuthSession) -> bool {
+pub(crate) fn is_expired(session: &AuthSession) -> bool {
     let exp = if session.expires_at > 0 {
         session.expires_at
     } else {
@@ -331,7 +324,7 @@ fn is_expired(session: &AuthSession) -> bool {
 
 // ─── HTTP helpers ────────────────────────────────────────────────────────────
 
-fn http_client() -> Result<reqwest::blocking::Client, String> {
+pub(crate) fn http_client() -> Result<reqwest::blocking::Client, String> {
     reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(60))
         .build()
@@ -412,7 +405,7 @@ fn apply_token_response(
     })
 }
 
-fn refresh_session(app: &AppHandle, session: &AuthSession) -> Result<AuthSession, String> {
+pub(crate) fn refresh_session(app: &AppHandle, session: &AuthSession) -> Result<AuthSession, String> {
     let json = match session.provider {
         ProviderId::Chatgpt => form_post(
             CHATGPT_TOKEN_URL,
@@ -545,276 +538,6 @@ fn wait_chatgpt_callback(
         );
         return Ok(code);
     }
-}
-
-// ─── Proofread ───────────────────────────────────────────────────────────────
-
-fn extract_output_text(json: &serde_json::Value) -> Result<String, String> {
-    // Responses API: output[].content[].text  or output_text
-    if let Some(t) = json.get("output_text").and_then(|v| v.as_str()) {
-        return Ok(t.to_string());
-    }
-    if let Some(arr) = json.get("output").and_then(|v| v.as_array()) {
-        let mut out = String::new();
-        for item in arr {
-            if let Some(content) = item.get("content").and_then(|c| c.as_array()) {
-                for part in content {
-                    if let Some(t) = part.get("text").and_then(|v| v.as_str()) {
-                        out.push_str(t);
-                    } else if let Some(t) = part
-                        .get("output_text")
-                        .or_else(|| part.get("value"))
-                        .and_then(|v| v.as_str())
-                    {
-                        out.push_str(t);
-                    }
-                }
-            }
-            // Some variants put text directly on message
-            if let Some(t) = item.get("text").and_then(|v| v.as_str()) {
-                out.push_str(t);
-            }
-        }
-        if !out.is_empty() {
-            return Ok(out);
-        }
-    }
-    // Chat completions fallback
-    if let Some(t) = json
-        .pointer("/choices/0/message/content")
-        .and_then(|v| v.as_str())
-    {
-        return Ok(t.to_string());
-    }
-    Err(format!(
-        "Could not parse model response: {}",
-        &json.to_string().chars().take(400).collect::<String>()
-    ))
-}
-
-/// Parse OpenAI Responses API SSE stream into a single text string.
-fn parse_responses_sse(raw: &str) -> Result<String, String> {
-    let mut deltas = String::new();
-    let mut final_text: Option<String> = None;
-    let mut completed_response: Option<serde_json::Value> = None;
-    let mut last_error: Option<String> = None;
-
-    for block in raw.split("\n\n") {
-        for line in block.lines() {
-            let line = line.trim();
-            if line.is_empty() || line.starts_with(':') {
-                continue;
-            }
-            let Some(data) = line.strip_prefix("data:") else {
-                continue;
-            };
-            let data = data.trim();
-            if data.is_empty() || data == "[DONE]" {
-                continue;
-            }
-            let Ok(json) = serde_json::from_str::<serde_json::Value>(data) else {
-                continue;
-            };
-
-            // Error events
-            if let Some(err) = json.get("error") {
-                let msg = err
-                    .get("message")
-                    .and_then(|v| v.as_str())
-                    .or_else(|| err.as_str())
-                    .unwrap_or("stream error");
-                last_error = Some(msg.to_string());
-                continue;
-            }
-
-            let event_type = json
-                .get("type")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-
-            match event_type {
-                "response.output_text.delta" => {
-                    if let Some(d) = json.get("delta").and_then(|v| v.as_str()) {
-                        deltas.push_str(d);
-                    }
-                }
-                "response.output_text.done" => {
-                    if let Some(t) = json.get("text").and_then(|v| v.as_str()) {
-                        final_text = Some(t.to_string());
-                    }
-                }
-                "response.completed" | "response.done" => {
-                    if let Some(resp) = json.get("response") {
-                        completed_response = Some(resp.clone());
-                    } else {
-                        completed_response = Some(json.clone());
-                    }
-                }
-                "error" => {
-                    let msg = json
-                        .get("message")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("unknown stream error");
-                    last_error = Some(msg.to_string());
-                }
-                _ => {
-                    // Some servers nest delta under content
-                    if let Some(d) = json.pointer("/delta/text").and_then(|v| v.as_str()) {
-                        deltas.push_str(d);
-                    }
-                }
-            }
-        }
-    }
-
-    if let Some(t) = final_text {
-        if !t.trim().is_empty() {
-            return Ok(t);
-        }
-    }
-    if !deltas.trim().is_empty() {
-        return Ok(deltas);
-    }
-    if let Some(resp) = completed_response {
-        if let Ok(t) = extract_output_text(&resp) {
-            if !t.trim().is_empty() {
-                return Ok(t);
-            }
-        }
-    }
-    if let Some(e) = last_error {
-        return Err(format!("ChatGPT: {e}"));
-    }
-    Err(format!(
-        "Could not parse ChatGPT stream: {}",
-        raw.chars().take(400).collect::<String>()
-    ))
-}
-
-fn call_chatgpt_responses(
-    session: &AuthSession,
-    text: &str,
-    model: &str,
-) -> Result<String, String> {
-    let account_id = session
-        .account_id
-        .clone()
-        .or_else(|| chatgpt_account_id_from_token(&session.access_token))
-        .ok_or("Missing ChatGPT account id — re-login")?;
-
-    // Codex / ChatGPT account surface requires stream=true.
-    let body = serde_json::json!({
-        "model": model,
-        "stream": true,
-        "store": false,
-        "instructions": SYSTEM_PROMPT,
-        "input": [
-            {
-                "role": "user",
-                "content": [
-                    { "type": "input_text", "text": text }
-                ]
-            }
-        ]
-    });
-
-    let client = http_client()?;
-    let res = client
-        .post(CHATGPT_RESPONSES_URL)
-        .header("Authorization", format!("Bearer {}", session.access_token))
-        .header("chatgpt-account-id", account_id)
-        .header("OpenAI-Beta", "responses=experimental")
-        .header("originator", "codex_cli_rs")
-        .header("Content-Type", "application/json")
-        .header("Accept", "text/event-stream")
-        .json(&body)
-        .send()
-        .map_err(|e| format!("ChatGPT network error: {e}"))?;
-
-    let status = res.status();
-    let raw = res.text().map_err(|e| e.to_string())?;
-    if status.as_u16() == 401 {
-        return Err("AUTH_EXPIRED".into());
-    }
-    if status.as_u16() == 429 {
-        return Err("Usage limit reached on your ChatGPT plan. Try again later.".into());
-    }
-    if !status.is_success() {
-        // Surface model detail if present (JSON error body)
-        if let Ok(j) = serde_json::from_str::<serde_json::Value>(&raw) {
-            if let Some(d) = j.get("detail").and_then(|v| v.as_str()) {
-                return Err(format!("ChatGPT: {d}"));
-            }
-            if let Some(m) = j.pointer("/error/message").and_then(|v| v.as_str()) {
-                return Err(format!("ChatGPT: {m}"));
-            }
-        }
-        return Err(format!("ChatGPT error {status}: {raw}"));
-    }
-
-    // Prefer SSE parse; fall back to single JSON body if the server didn't stream.
-    if raw.contains("data:") {
-        parse_responses_sse(&raw)
-    } else if let Ok(json) = serde_json::from_str::<serde_json::Value>(&raw) {
-        extract_output_text(&json)
-    } else {
-        parse_responses_sse(&raw)
-    }
-}
-
-fn call_xai_responses(session: &AuthSession, text: &str, model: &str) -> Result<String, String> {
-    let body = serde_json::json!({
-        "model": model,
-        "store": false,
-        "instructions": SYSTEM_PROMPT,
-        "input": [
-            {
-                "role": "user",
-                "content": [
-                    { "type": "input_text", "text": text }
-                ]
-            }
-        ]
-    });
-
-    let client = http_client()?;
-    let res = client
-        .post(XAI_RESPONSES_URL)
-        .header("Authorization", format!("Bearer {}", session.access_token))
-        .header("Content-Type", "application/json")
-        .header("x-xai-token-auth", "xai-grok-cli")
-        .header("x-grok-client-identifier", "grok-shell")
-        .header("x-grok-client-version", "0.2.93")
-        .header("Accept", "application/json")
-        .json(&body)
-        .send()
-        .map_err(|e| format!("SuperGrok network error: {e}"))?;
-
-    let status = res.status();
-    let raw = res.text().map_err(|e| e.to_string())?;
-    if status.as_u16() == 401 {
-        return Err("AUTH_EXPIRED".into());
-    }
-    if status.as_u16() == 429 {
-        return Err("Usage limit reached on your SuperGrok plan. Try again later.".into());
-    }
-    if status.as_u16() == 402 || status.as_u16() == 403 {
-        return Err(
-            "Your SuperGrok account is not entitled for this API surface. Check your subscription tier."
-                .into(),
-        );
-    }
-    if !status.is_success() {
-        if let Ok(j) = serde_json::from_str::<serde_json::Value>(&raw) {
-            if let Some(m) = j.pointer("/error/message").and_then(|v| v.as_str()) {
-                return Err(format!("SuperGrok: {m}"));
-            }
-        }
-        return Err(format!("SuperGrok error {status}: {raw}"));
-    }
-    let json: serde_json::Value =
-        serde_json::from_str(&raw).map_err(|e| format!("SuperGrok json: {e}"))?;
-    extract_output_text(&json)
 }
 
 // ─── Tauri commands ──────────────────────────────────────────────────────────
@@ -1083,44 +806,4 @@ pub fn xai_poll_login(
 
     *state.pending_xai.lock() = None;
     Err(format!("SuperGrok login failed ({status}): {body}"))
-}
-
-#[tauri::command]
-pub async fn proofread_text(app: AppHandle, text: String) -> Result<String, String> {
-    let app2 = app.clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        let path = auth_path(&app2)?;
-        if !path.exists() {
-            return Err(
-                "Not signed in. Open Settings and connect ChatGPT or SuperGrok.".into(),
-            );
-        }
-        let raw = fs::read_to_string(&path).map_err(|e| e.to_string())?;
-        let mut session: AuthSession =
-            serde_json::from_str(&raw).map_err(|e| e.to_string())?;
-        if is_expired(&session) {
-            session = refresh_session(&app2, &session)?;
-        }
-
-        let model = selected_model(&app2, &session.provider);
-        let result = match session.provider {
-            ProviderId::Chatgpt => call_chatgpt_responses(&session, &text, &model),
-            ProviderId::Xai => call_xai_responses(&session, &text, &model),
-        };
-
-        match result {
-            Err(e) if e == "AUTH_EXPIRED" => {
-                let refreshed = refresh_session(&app2, &session)?;
-                let model = selected_model(&app2, &refreshed.provider);
-                match refreshed.provider {
-                    ProviderId::Chatgpt => call_chatgpt_responses(&refreshed, &text, &model),
-                    ProviderId::Xai => call_xai_responses(&refreshed, &text, &model),
-                }
-            }
-            other => other,
-        }
-        .map(|s| s.trim().to_string())
-    })
-    .await
-    .map_err(|e| format!("proofread task: {e}"))?
 }

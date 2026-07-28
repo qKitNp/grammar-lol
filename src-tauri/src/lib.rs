@@ -10,6 +10,7 @@ use tauri_plugin_sql::{Migration, MigrationKind};
 
 mod auth;
 mod doubletap;
+mod inference;
 mod sound;
 
 struct OnboardingState(std::sync::atomic::AtomicBool);
@@ -214,7 +215,7 @@ pub fn run() {
             auth::xai_poll_login,
             auth::get_model_settings,
             auth::set_model,
-            auth::proofread_text,
+            inference::proofread_text,
         ]);
 
     builder
