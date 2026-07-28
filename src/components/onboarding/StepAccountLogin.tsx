@@ -103,7 +103,7 @@ export function StepAccountLogin({ onNext }: { onNext: () => void }) {
         <div className="flex flex-col gap-3 w-full">
           <ProviderButton
             title="Continue with ChatGPT"
-            subtitle="Uses your ChatGPT Plus / Pro plan"
+            subtitle="Works with Free, Go, Plus, and Pro plans"
             onClick={handleChatgpt}
           />
           <ProviderButton

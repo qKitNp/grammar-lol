@@ -15,7 +15,7 @@ Select text in any app, double-tap **Right Shift**, and Grammar.lol corrects gra
 
 | Provider | Auth | Usage |
 |----------|------|--------|
-| **ChatGPT** | Browser OAuth (Codex / ChatGPT account) | ChatGPT Plus / Pro (or eligible plan) |
+| **ChatGPT** | Browser OAuth (Codex / ChatGPT account) | Free, Go, Plus, and Pro plans |
 | **SuperGrok** | Device-code OAuth at accounts.x.ai | SuperGrok or eligible X Premium+ |
 
 Pick one provider during onboarding. Switch later in **Settings → Account**. Choose a model there as well.
