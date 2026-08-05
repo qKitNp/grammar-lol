@@ -9,6 +9,8 @@ use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_sql::{Migration, MigrationKind};
 
 mod auth;
+#[cfg(target_os = "macos")]
+mod apple_intelligence;
 mod doubletap;
 mod inference;
 mod sound;
@@ -324,6 +326,8 @@ pub fn run() {
             auth::xai_poll_login,
             auth::get_model_settings,
             auth::set_model,
+            auth::apple_intelligence_status,
+            auth::apple_intelligence_enable,
             inference::proofread_text,
         ]);
 

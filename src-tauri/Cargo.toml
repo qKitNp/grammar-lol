@@ -41,3 +41,5 @@ rdev = "0.5"
 [target.'cfg(target_os = "macos")'.dependencies]
 core-foundation = "0.10"
 core-graphics = "0.24"
+# On-device Apple Intelligence is bridged via swift-bridge/ + build.rs
+# (not the foundation-models crate — that needs a newer Xcode SDK).

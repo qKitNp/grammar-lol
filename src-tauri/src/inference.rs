@@ -1,4 +1,5 @@
-//! Proofread inference against ChatGPT / SuperGrok Responses APIs.
+//! Proofread inference against ChatGPT / SuperGrok Responses APIs,
+//! or the on-device Apple Intelligence (Foundation Models) path.
 //!
 //! Runs in the Tauri backend so the frontend never needs CORS exceptions.
 //! Auth (tokens + model choice) comes from [`crate::auth`].
@@ -282,15 +283,33 @@ fn call_xai_responses(session: &AuthSession, text: &str, model: &str) -> Result<
     extract_output_text(&json)
 }
 
+/// On-device proofread via Apple Foundation Models (Apple Intelligence).
+#[cfg(target_os = "macos")]
+fn call_apple_intelligence(text: &str) -> Result<String, String> {
+    // Fresh session per call is handled inside the Swift bridge so prior turns
+    // never consume the ~4k context window.
+    crate::apple_intelligence::proofread(SYSTEM_PROMPT, text).map(|s| s.trim().to_string())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn call_apple_intelligence(_text: &str) -> Result<String, String> {
+    Err("Apple Intelligence is only available on macOS 26+ with Apple Silicon.".into())
+}
+
 fn proofread_with_session(
     app: &AppHandle,
     session: AuthSession,
     text: &str,
 ) -> Result<String, String> {
+    if session.provider == ProviderId::AppleIntelligence {
+        return call_apple_intelligence(text);
+    }
+
     let model = selected_model(app, &session.provider);
     let result = match session.provider {
         ProviderId::Chatgpt => call_chatgpt_responses(&session, text, &model),
         ProviderId::Xai => call_xai_responses(&session, text, &model),
+        ProviderId::AppleIntelligence => unreachable!("handled above"),
     };
 
     match result {
@@ -300,6 +319,7 @@ fn proofread_with_session(
             match refreshed.provider {
                 ProviderId::Chatgpt => call_chatgpt_responses(&refreshed, text, &model),
                 ProviderId::Xai => call_xai_responses(&refreshed, text, &model),
+                ProviderId::AppleIntelligence => call_apple_intelligence(text),
             }
         }
         other => other,
@@ -312,9 +332,11 @@ pub async fn proofread_text(app: AppHandle, text: String) -> Result<String, Stri
     let app2 = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let mut session = load_session(&app2)?.ok_or_else(|| {
-            "Not signed in. Open Settings and connect ChatGPT or SuperGrok.".to_string()
+            "Not signed in. Open Settings and connect ChatGPT, SuperGrok, or Apple Intelligence."
+                .to_string()
         })?;
-        if is_expired(&session) {
+        // Local provider has no tokens to refresh.
+        if session.provider != ProviderId::AppleIntelligence && is_expired(&session) {
             session = refresh_session(&app2, &session)?;
         }
         proofread_with_session(&app2, session, &text)

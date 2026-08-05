@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { ONBOARDING_FLAG } from "./Onboarding";
 import {
+  enableAppleIntelligence,
+  getAppleIntelligenceStatus,
   getAuthStatus,
   getModelSettings,
   loginWithChatgpt,
@@ -8,6 +10,7 @@ import {
   signOut,
   startXaiLogin,
   waitForXaiLogin,
+  type AppleIntelligenceStatus,
   type AuthStatus,
   type ModelSettings,
   type ProviderId,
@@ -84,15 +87,27 @@ export function Settings() {
 function AccountSection() {
   const [status, setStatus] = useState<AuthStatus | null>(null);
   const [models, setModels] = useState<ModelSettings | null>(null);
+  const [apple, setApple] = useState<AppleIntelligenceStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [xaiCode, setXaiCode] = useState<string | null>(null);
 
   const refresh = async () => {
     try {
-      const [s, m] = await Promise.all([getAuthStatus(), getModelSettings()]);
+      const [s, m, a] = await Promise.all([
+        getAuthStatus(),
+        getModelSettings(),
+        getAppleIntelligenceStatus().catch(
+          (): AppleIntelligenceStatus => ({
+            supported: false,
+            available: false,
+            reason: null,
+          }),
+        ),
+      ]);
       setStatus(s);
       setModels(m);
+      setApple(a);
     } catch {
       setStatus({
         signed_in: false,
@@ -128,7 +143,9 @@ function AccountSection() {
     setXaiCode(null);
     try {
       await signOut().catch(() => {});
-      if (provider === "chatgpt") {
+      if (provider === "apple_intelligence") {
+        await enableAppleIntelligence();
+      } else if (provider === "chatgpt") {
         await loginWithChatgpt();
       } else {
         const start = await startXaiLogin();
@@ -160,9 +177,12 @@ function AccountSection() {
   }
 
   const connected = status?.signed_in;
+  const isLocal = status?.provider === "apple_intelligence";
   const identity =
     status?.label ||
     (connected ? "Connected" : "Not connected");
+  const showModelPicker =
+    connected && models && models.models.length > 1 && !isLocal;
 
   return (
     <Section title="Account">
@@ -174,7 +194,7 @@ function AccountSection() {
       <Row label="Signed in as">
         <span className="text-[13px] text-[var(--text-soft)]">{identity}</span>
       </Row>
-      {connected && models && (
+      {showModelPicker && models && (
         <Row label="Model">
           <select
             value={models.selected}
@@ -190,6 +210,13 @@ function AccountSection() {
           </select>
         </Row>
       )}
+      {isLocal && (
+        <Row label="Model">
+          <span className="text-[13px] text-[var(--text-soft)]">
+            On-device (Apple Intelligence)
+          </span>
+        </Row>
+      )}
       {xaiCode && (
         <div className="px-5 py-3 text-[13px] text-[var(--text-soft)]">
           Enter code <span className="font-mono tracking-wider text-[var(--text)]">{xaiCode}</span> in
@@ -203,6 +230,16 @@ function AccountSection() {
         <div className="flex flex-wrap gap-2 justify-end">
           {!connected && (
             <>
+              {apple?.supported && (
+                <button
+                  disabled={busy || !apple.available}
+                  title={apple.available ? undefined : (apple.reason ?? undefined)}
+                  onClick={() => connect("apple_intelligence")}
+                  className="text-[12.5px] px-3 py-1.5 rounded-md border border-[var(--border)] bg-[var(--bg)] hover:bg-[var(--sidebar)] cursor-pointer disabled:opacity-50"
+                >
+                  Apple Intelligence
+                </button>
+              )}
               <button
                 disabled={busy}
                 onClick={() => connect("chatgpt")}
@@ -221,21 +258,39 @@ function AccountSection() {
           )}
           {connected && (
             <>
-              <button
-                disabled={busy}
-                onClick={() =>
-                  connect(status?.provider === "chatgpt" ? "xai" : "chatgpt")
-                }
-                className="text-[12.5px] px-3 py-1.5 rounded-md border border-[var(--border)] bg-[var(--bg)] hover:bg-[var(--sidebar)] cursor-pointer disabled:opacity-50"
-              >
-                Switch provider
-              </button>
+              {status?.provider !== "apple_intelligence" && apple?.supported && apple.available && (
+                <button
+                  disabled={busy}
+                  onClick={() => connect("apple_intelligence")}
+                  className="text-[12.5px] px-3 py-1.5 rounded-md border border-[var(--border)] bg-[var(--bg)] hover:bg-[var(--sidebar)] cursor-pointer disabled:opacity-50"
+                >
+                  Switch to Apple
+                </button>
+              )}
+              {status?.provider !== "chatgpt" && (
+                <button
+                  disabled={busy}
+                  onClick={() => connect("chatgpt")}
+                  className="text-[12.5px] px-3 py-1.5 rounded-md border border-[var(--border)] bg-[var(--bg)] hover:bg-[var(--sidebar)] cursor-pointer disabled:opacity-50"
+                >
+                  Switch to ChatGPT
+                </button>
+              )}
+              {status?.provider !== "xai" && (
+                <button
+                  disabled={busy}
+                  onClick={() => connect("xai")}
+                  className="text-[12.5px] px-3 py-1.5 rounded-md border border-[var(--border)] bg-[var(--bg)] hover:bg-[var(--sidebar)] cursor-pointer disabled:opacity-50"
+                >
+                  Switch to SuperGrok
+                </button>
+              )}
               <button
                 disabled={busy}
                 onClick={handleSignOut}
                 className="text-[12.5px] px-3 py-1.5 rounded-md border border-[var(--border)] bg-[var(--bg)] hover:bg-[var(--sidebar)] cursor-pointer disabled:opacity-50"
               >
-                Sign out
+                {isLocal ? "Disconnect" : "Sign out"}
               </button>
             </>
           )}
