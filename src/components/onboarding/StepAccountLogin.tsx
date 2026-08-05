@@ -3,9 +3,12 @@ import { motion } from "motion/react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   cancelChatgptLogin,
+  enableAppleIntelligence,
+  getAppleIntelligenceStatus,
   loginWithChatgpt,
   startXaiLogin,
   waitForXaiLogin,
+  type AppleIntelligenceStatus,
   type ProviderId,
 } from "../../lib/auth";
 
@@ -17,9 +20,19 @@ type Phase =
 
 export function StepAccountLogin({ onNext }: { onNext: () => void }) {
   const [phase, setPhase] = useState<Phase>({ kind: "pick" });
+  const [apple, setApple] = useState<AppleIntelligenceStatus | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
+    getAppleIntelligenceStatus()
+      .then(setApple)
+      .catch(() =>
+        setApple({
+          supported: false,
+          available: false,
+          reason: "Could not check Apple Intelligence status.",
+        }),
+      );
     return () => {
       abortRef.current?.abort();
     };
@@ -73,6 +86,20 @@ export function StepAccountLogin({ onNext }: { onNext: () => void }) {
     }
   }
 
+  async function handleApple() {
+    abortRef.current?.abort();
+    try {
+      await enableAppleIntelligence();
+      onNext();
+    } catch (e) {
+      setPhase({
+        kind: "error",
+        provider: "apple_intelligence",
+        message: e instanceof Error ? e.message : String(e),
+      });
+    }
+  }
+
   async function openVerification(uri: string) {
     try {
       await openUrl(uri);
@@ -91,16 +118,28 @@ export function StepAccountLogin({ onNext }: { onNext: () => void }) {
     >
       <div>
         <h1 className="text-[26px] font-medium tracking-tight leading-tight">
-          Connect your account
+          Choose a proofreading engine
         </h1>
         <p className="mt-3 text-[13.5px] text-[var(--text-soft)] leading-relaxed">
-          Grammar.lol uses your ChatGPT or SuperGrok subscription for corrections.
+          Use on-device Apple Intelligence, or your ChatGPT / SuperGrok subscription.
           Your writing is never sent to a Grammar.lol server.
         </p>
       </div>
 
       {phase.kind === "pick" && (
         <div className="flex flex-col gap-3 w-full">
+          {apple?.supported && (
+            <ProviderButton
+              title="Continue with Apple Intelligence"
+              subtitle={
+                apple.available
+                  ? "On-device · free · private"
+                  : (apple.reason ?? "Not available right now")
+              }
+              onClick={handleApple}
+              disabled={!apple.available}
+            />
+          )}
           <ProviderButton
             title="Continue with ChatGPT"
             subtitle="Works with Free, Go, Plus, and Pro plans"
@@ -183,15 +222,18 @@ function ProviderButton({
   title,
   subtitle,
   onClick,
+  disabled,
 }: {
   title: string;
   subtitle: string;
   onClick: () => void;
+  disabled?: boolean;
 }) {
   return (
     <button
       onClick={onClick}
-      className="w-full text-left px-5 py-4 rounded-lg border border-[var(--border)] bg-[var(--surface)] hover:border-[var(--accent)] transition-colors cursor-pointer"
+      disabled={disabled}
+      className="w-full text-left px-5 py-4 rounded-lg border border-[var(--border)] bg-[var(--surface)] hover:border-[var(--accent)] transition-colors cursor-pointer disabled:opacity-50 disabled:hover:border-[var(--border)] disabled:cursor-not-allowed"
     >
       <div className="text-[14px] font-medium text-[var(--text)]">{title}</div>
       <div className="text-[12px] text-[var(--text-soft)] mt-0.5">{subtitle}</div>

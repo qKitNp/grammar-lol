@@ -1,7 +1,9 @@
-//! Session storage + ChatGPT / SuperGrok OAuth.
+//! Session storage + ChatGPT / SuperGrok OAuth + local Apple Intelligence.
 //!
 //! Tokens live in the app config dir (mode 0600). Proofread calls live in
 //! [`crate::inference`] and pull tokens from here.
+//!
+//! Apple Intelligence uses a tokenless session marker — no network OAuth.
 
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use parking_lot::Mutex;
@@ -31,6 +33,7 @@ const XAI_DEVICE_CODE_URL: &str = "https://auth.x.ai/oauth2/device/code";
 const XAI_TOKEN_URL: &str = "https://auth.x.ai/oauth2/token";
 const XAI_SCOPE: &str = "openid profile email offline_access grok-cli:access api:access conversations:read conversations:write";
 const XAI_DEFAULT_MODEL: &str = "grok-4.20-0309-non-reasoning";
+const APPLE_DEFAULT_MODEL: &str = "apple-intelligence";
 
 /// Curated models for ChatGPT subscription (Codex) surface.
 /// Availability depends on plan; the API will reject unsupported slugs.
@@ -53,6 +56,11 @@ const XAI_MODELS: &[(&str, &str)] = &[
     ("grok-build-0.1", "Grok Build 0.1"),
 ];
 
+const APPLE_MODELS: &[(&str, &str)] = &[(
+    APPLE_DEFAULT_MODEL,
+    "On-device (Apple Intelligence)",
+)];
+
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -60,6 +68,7 @@ const XAI_MODELS: &[(&str, &str)] = &[
 pub enum ProviderId {
     Chatgpt,
     Xai,
+    AppleIntelligence,
 }
 
 impl ProviderId {
@@ -67,7 +76,13 @@ impl ProviderId {
         match self {
             ProviderId::Chatgpt => "ChatGPT",
             ProviderId::Xai => "SuperGrok",
+            ProviderId::AppleIntelligence => "Apple Intelligence",
         }
+    }
+
+    /// True when this provider does not use OAuth tokens.
+    pub fn is_local(&self) -> bool {
+        matches!(self, ProviderId::AppleIntelligence)
     }
 }
 
@@ -126,6 +141,17 @@ pub struct XaiDeviceStart {
     pub verification_uri_complete: Option<String>,
     pub interval: u64,
     pub expires_in: u64,
+}
+
+/// Runtime status of the on-device Apple Intelligence model.
+#[derive(Debug, Clone, Serialize)]
+pub struct AppleIntelligenceStatus {
+    /// Compile + platform support (macOS target of this binary).
+    pub supported: bool,
+    /// Model is ready to run right now.
+    pub available: bool,
+    /// Human-readable reason when not available.
+    pub reason: Option<String>,
 }
 
 /// In-flight SuperGrok device-code state (held in memory only).
@@ -200,6 +226,7 @@ fn models_for(provider: &ProviderId) -> &'static [(&'static str, &'static str)] 
     match provider {
         ProviderId::Chatgpt => CHATGPT_MODELS,
         ProviderId::Xai => XAI_MODELS,
+        ProviderId::AppleIntelligence => APPLE_MODELS,
     }
 }
 
@@ -207,6 +234,7 @@ fn default_model(provider: &ProviderId) -> &'static str {
     match provider {
         ProviderId::Chatgpt => CHATGPT_DEFAULT_MODEL,
         ProviderId::Xai => XAI_DEFAULT_MODEL,
+        ProviderId::AppleIntelligence => APPLE_DEFAULT_MODEL,
     }
 }
 
@@ -219,10 +247,33 @@ pub(crate) fn selected_model(app: &AppHandle, provider: &ProviderId) -> String {
     let stored = match provider {
         ProviderId::Chatgpt => prefs.chatgpt_model.as_deref(),
         ProviderId::Xai => prefs.xai_model.as_deref(),
+        ProviderId::AppleIntelligence => Some(APPLE_DEFAULT_MODEL),
     };
     match stored {
         Some(m) if is_known_model(provider, m) => m.to_string(),
         _ => default_model(provider).to_string(),
+    }
+}
+
+fn apple_intelligence_status_inner() -> AppleIntelligenceStatus {
+    #[cfg(target_os = "macos")]
+    {
+        let st = crate::apple_intelligence::status();
+        AppleIntelligenceStatus {
+            supported: st.supported,
+            available: st.available,
+            reason: st.reason,
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        AppleIntelligenceStatus {
+            supported: false,
+            available: false,
+            reason: Some(
+                "Apple Intelligence is only available on macOS 26+ with Apple Silicon.".into(),
+            ),
+        }
     }
 }
 
@@ -310,6 +361,9 @@ fn now_unix() -> i64 {
 }
 
 pub(crate) fn is_expired(session: &AuthSession) -> bool {
+    if session.provider.is_local() {
+        return false;
+    }
     let exp = if session.expires_at > 0 {
         session.expires_at
     } else {
@@ -388,7 +442,9 @@ fn apply_token_response(
             .map(|s| s.to_string())
             .or_else(|| chatgpt_account_id_from_token(&access))
             .or_else(|| prev.and_then(|p| p.account_id.clone())),
-        ProviderId::Xai => prev.and_then(|p| p.account_id.clone()),
+        ProviderId::Xai | ProviderId::AppleIntelligence => {
+            prev.and_then(|p| p.account_id.clone())
+        }
     };
 
     let label = email_from_id_token(id_token.as_deref())
@@ -406,6 +462,9 @@ fn apply_token_response(
 }
 
 pub(crate) fn refresh_session(app: &AppHandle, session: &AuthSession) -> Result<AuthSession, String> {
+    if session.provider.is_local() {
+        return Ok(session.clone());
+    }
     let json = match session.provider {
         ProviderId::Chatgpt => form_post(
             CHATGPT_TOKEN_URL,
@@ -423,6 +482,7 @@ pub(crate) fn refresh_session(app: &AppHandle, session: &AuthSession) -> Result<
                 ("client_id", XAI_CLIENT_ID),
             ],
         )?,
+        ProviderId::AppleIntelligence => return Ok(session.clone()),
     };
     let next = apply_token_response(session.provider.clone(), &json, Some(session))?;
     save_session(app, &next)?;
@@ -590,8 +650,13 @@ pub fn get_model_settings(app: AppHandle) -> Result<ModelSettings, String> {
 #[tauri::command]
 pub fn set_model(app: AppHandle, model: String) -> Result<ModelSettings, String> {
     let session = load_session(&app)?.ok_or_else(|| {
-        "Not signed in. Connect ChatGPT or SuperGrok before choosing a model.".to_string()
+        "Not signed in. Connect ChatGPT, SuperGrok, or Apple Intelligence before choosing a model."
+            .to_string()
     })?;
+    if session.provider.is_local() {
+        // Single fixed on-device model — nothing to persist.
+        return get_model_settings(app);
+    }
     if !is_known_model(&session.provider, &model) {
         return Err(format!(
             "Unknown model for {}: {model}",
@@ -602,9 +667,52 @@ pub fn set_model(app: AppHandle, model: String) -> Result<ModelSettings, String>
     match session.provider {
         ProviderId::Chatgpt => prefs.chatgpt_model = Some(model),
         ProviderId::Xai => prefs.xai_model = Some(model),
+        ProviderId::AppleIntelligence => {}
     }
     save_prefs(&app, &prefs)?;
     get_model_settings(app)
+}
+
+/// Report whether the on-device Apple Intelligence model can run.
+#[tauri::command]
+pub fn apple_intelligence_status() -> AppleIntelligenceStatus {
+    apple_intelligence_status_inner()
+}
+
+/// Activate the local Apple Intelligence provider (no OAuth).
+#[tauri::command]
+pub fn apple_intelligence_enable(app: AppHandle) -> Result<AuthStatus, String> {
+    let status = apple_intelligence_status_inner();
+    if !status.supported {
+        return Err(status
+            .reason
+            .unwrap_or_else(|| "Apple Intelligence is not supported on this platform.".into()));
+    }
+    if !status.available {
+        return Err(status.reason.unwrap_or_else(|| {
+            "Apple Intelligence is not available. Enable it in System Settings.".into()
+        }));
+    }
+
+    let session = AuthSession {
+        provider: ProviderId::AppleIntelligence,
+        // Tokenless marker session — never sent on the wire.
+        access_token: String::new(),
+        refresh_token: String::new(),
+        id_token: None,
+        account_id: None,
+        label: Some("On this Mac".into()),
+        expires_at: 0,
+    };
+    save_session(&app, &session)?;
+    let model = selected_model(&app, &ProviderId::AppleIntelligence);
+    Ok(AuthStatus {
+        signed_in: true,
+        provider: Some(ProviderId::AppleIntelligence),
+        label: session.label,
+        provider_label: Some(ProviderId::AppleIntelligence.label().to_string()),
+        model: Some(model),
+    })
 }
 
 #[tauri::command]

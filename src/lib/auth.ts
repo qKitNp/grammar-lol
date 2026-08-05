@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 
-export type ProviderId = "chatgpt" | "xai";
+export type ProviderId = "chatgpt" | "xai" | "apple_intelligence";
 
 export type AuthStatus = {
   signed_in: boolean;
@@ -27,6 +27,12 @@ export type XaiDeviceStart = {
   verification_uri_complete: string | null;
   interval: number;
   expires_in: number;
+};
+
+export type AppleIntelligenceStatus = {
+  supported: boolean;
+  available: boolean;
+  reason: string | null;
 };
 
 export async function getAuthStatus(): Promise<AuthStatus> {
@@ -62,6 +68,16 @@ export async function startXaiLogin(): Promise<XaiDeviceStart> {
 /** Poll once. Returns status when complete, null if still pending. */
 export async function pollXaiLogin(): Promise<AuthStatus | null> {
   return invoke<AuthStatus | null>("xai_poll_login");
+}
+
+/** Whether the on-device Apple Intelligence model can run. */
+export async function getAppleIntelligenceStatus(): Promise<AppleIntelligenceStatus> {
+  return invoke<AppleIntelligenceStatus>("apple_intelligence_status");
+}
+
+/** Activate local Apple Intelligence (no OAuth). */
+export async function enableAppleIntelligence(): Promise<AuthStatus> {
+  return invoke<AuthStatus>("apple_intelligence_enable");
 }
 
 export async function waitForXaiLogin(
