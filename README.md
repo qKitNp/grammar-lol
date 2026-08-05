@@ -29,16 +29,17 @@ Pick one provider during onboarding. Switch later in **Settings → Account**. C
 ## Develop
 
 ```bash
-bun install
-bun run tauri dev
+npm install
+npx tauri dev
 ```
 
-Requirements: Rust toolchain, platform build tools (Xcode CLT on macOS), [Bun](https://bun.sh).
+Requirements: Node.js (npm), Rust toolchain, platform build tools (Xcode CLT on macOS). Bun works too if you prefer.
 
 ## Build
 
 ```bash
-bun run tauri build
+npm install
+npx tauri build
 ```
 
 macOS app output:
